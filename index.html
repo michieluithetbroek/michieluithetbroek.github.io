@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Map</title>
+	<link rel="stylesheet" type="text/css" href="style.css">
+	
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+    integrity="sha256-kLaT2GOSpHechhsozzB+flnD+zUyjE2LlfWPgU04xyI="
+    crossorigin=""/>
+
+  <!-- Make sure you put this AFTER Leaflet's CSS -->
+  <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
+      integrity="sha256-WBkoXOwTeyKclOHuWtc+i2uENFpDZ9YPdf5Hf+D7ewM="
+      crossorigin=""></script>
+
+  <!-- Required to read and parse CSV files in javascript -->
+ 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+
+  <!-- CSS used outside the LeafletJS map -->
+  
+  <style>
+    #selectedSquares {
+      display: flex;
+      flex-wrap: wrap;
+      max-width: 800px;
+      margin-top: 20px;
+    }
+  </style>
+
+  <!-- Script with initial settings, style, and functions used by the LeafletJS map -->
+
+  <script>
+  
+    // Area of grid and some other settings
+    
+    var initial_zoom = 13;
+    var initial_x    = 53.2339;
+    var initial_y    = 6.536;
+    
+    var grid_colMin = 8400;
+    var grid_colMax = 8550;
+    var grid_rowMin = 5300;
+    var grid_rowMax = 5500;
+    
+    showGridLayerFromZoom = 11;
+  
+    // Define the styles for the clicked and unclicked squares
+    
+    var style_clicked = {
+        color: "black",
+        weight: 1,
+        fillColor: "yellow",
+        fillOpacity: 0.5
+    };
+    
+    var style_unclicked = {
+        color: "transparant",
+        weight: 0,
+        fillColor: "transparant",
+        fillOpacity: 0
+    };
+    
+    var style_hovered = {
+        color: "yellow",
+        weight: 1,
+        fillColor: "#666",
+        fillOpacity: 0.3
+    };
+    
+    var style_hovered_clicked = {
+        color: "#666",
+        weight: 3,
+        fillColor: "#f7fcfd",
+        fillOpacity: 0.3
+    };
+    
+    // Functions to translate tile indices into lon/lat
+    
+    function tile_to_lon(x, zoom)
+    {
+      return (x / Math.pow(2, zoom) * 360 - 180);
+    }
+    
+    function tile_to_lat(y, zoom)
+    {
+      var n = Math.PI - 2 * Math.PI * y / Math.pow(2, zoom);
+      return (180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))));
+    }
+
+
+    // Read data with all nodes and parse into JS array
+    
+    const nodes = [];
+    
+    fetch('nodes.csv')
+      .then(response => response.text())
+      .then(data => {
+        const parsedData = Papa.parse(data, {delimiter: ';', decimal: ','}).data;
+        for (let i = 1; i < parsedData.length; i++) {
+          const idx_way  = parseInt(parsedData[i][0]);
+          const idx_node = parseInt(parsedData[i][2]);
+          const lon      = parseFloat(parsedData[i][3].replace(/,/, '.'));
+          const lat      = parseFloat(parsedData[i][4].replace(/,/, '.'));
+          const tile_x   = parseInt(parsedData[i][5]);
+          const tile_y   = parseInt(parsedData[i][6]);
+          const way_type = parsedData[i][7];
+          
+          nodes.push([idx_way, idx_node, lon, lat, tile_x, tile_y, way_type]);
+        }
+        
+        createNodeLayer(nodes);
+      });
+    
+  </script>
+</head>
+<body>
+
+  <div id="map"></div>
+  <div id = "selectedSquares">Selected tiles: -</div>
+  	
+  <script>
+
+    // -------------------------------------------------------------------------
+    // --- Initialize the map                                                ---
+    // -------------------------------------------------------------------------
+
+    var map = L.map('map').setView([initial_x, initial_y], initial_zoom);
+    
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    }).addTo(map);
+    
+    
+    
+    // -------------------------------------------------------------------------
+    // --- Variables shown outside map                                       ---
+    // -------------------------------------------------------------------------
+  
+    var selectedSquaresDiv = document.getElementById('selectedSquares');
+    
+    
+    
+    // -------------------------------------------------------------------------
+    // --- Layer to show grid                                                ---
+    // -------------------------------------------------------------------------
+
+    var gridLayer = L.layerGroup().addTo(map);
+
+    for (let col = grid_colMin; col <= grid_colMax; col++)
+    {
+      var polyline = L.polyline([[tile_to_lat(grid_rowMin, 14), tile_to_lon(col, 14)],
+                                 [tile_to_lat(grid_rowMax, 14), tile_to_lon(col, 14)]], 
+                                {weight: 1, color: 'black'}).addTo(gridLayer);
+    }
+    
+    for (let row = grid_rowMin; row <= grid_rowMax; row++)
+    {
+      var polyline = L.polyline([[tile_to_lat(row, 14), tile_to_lon(grid_colMax, 14)],
+                                 [tile_to_lat(row, 14), tile_to_lon(grid_colMin, 14)]], 
+                                {weight: 1, color: 'black'}).addTo(gridLayer);
+    }
+
+
+
+    // -------------------------------------------------------------------------
+    // --- Layer with clickable tiles                                        ---
+    // -------------------------------------------------------------------------
+    
+    var squareLayer = L.layerGroup({zIndex: 80}).addTo(map);
+    
+    var selectedTiles = [];
+    
+    for (let col = grid_colMin; col < grid_colMax; col++)
+    {
+        for (let row = grid_rowMin; row < grid_rowMax; row++)
+        {
+            // The initial squares
+        
+            var square = L.rectangle([
+                [tile_to_lat(row, 14),     tile_to_lon(col, 14)],
+                [tile_to_lat(row + 1, 14), tile_to_lon(col - 1, 14)]
+            ], style_unclicked).addTo(squareLayer);
+            
+            
+            // Click event
+
+            square.on('click', function(event)
+            {
+                var index = squareLayer.getLayerId(event.target);
+   
+                if (selectedTiles.indexOf(index) > -1)
+                {
+                    selectedTiles.splice(selectedTiles.indexOf(index), 1);
+                    event.target.setStyle(style_unclicked);
+                } else {
+                    event.target.setStyle(style_clicked);
+                    
+                    selectedTiles.push(index);
+                    selectedTiles.sort(function(a, b) { return a - b });
+                }
+                
+                updateSelectedSquaresDiv();
+            });
+            
+            
+            // Mouseover event
+            
+            square.on('mouseover', function(event)
+            {
+                var index = squareLayer.getLayerId(event.target);
+                var listIndex = selectedTiles.indexOf(index);
+                
+                //event.target.bringToFront();
+                event.target.setStyle(listIndex > -1 ? style_hovered : style_hovered_clicked);
+            });
+            
+            
+            // Mouseout event
+            
+            square.on('mouseout', function(event)
+            {
+                var index = squareLayer.getLayerId(event.target);
+                var listIndex = selectedTiles.indexOf(index);
+                
+                event.target.setStyle(listIndex > -1 ? style_clicked : style_unclicked);
+            });
+        }
+    }
+    
+    
+    
+    // -------------------------------------------------------------------------
+    // --- Layer with nodes                                                  ---
+    // -------------------------------------------------------------------------
+
+    // Nodes are read from a file which occurs asynchronous. To make sure that 
+    // this functions is only called after the nodes array is being populated 
+    // it is implemented as a function that is called when the file is read
+
+    var nodeLayer = L.layerGroup({zIndex: 100}).addTo(map);
+
+    function createNodeLayer(nodes)
+    {
+      // Define the circle options
+      
+      var circleOptions = {
+          color: 'black',
+          fillColor: '#f03',
+          fillOpacity: 0.5,
+          radius: 10
+      };
+      
+      for (var i = 0; i < nodes.length; i++)
+      {
+        var table = "<table>" +
+                "<tr><td><b>Node:</b>     </td><td>" + nodes[i][1] + "</td></tr>" +
+                "<tr><td><b>Latitude:</b> </td><td>" + nodes[i][3] + "</td></tr>" +
+                "<tr><td><b>Longitude:</b></td><td>" + nodes[i][2] + "</td></tr>" +
+                "<tr><td><b>tile x:</b>   </td><td>" + nodes[i][4] + "</td></tr>" +
+                "<tr><td><b>tile y:</b>   </td><td>" + nodes[i][5] + "</td></tr>" +
+                "<tr><td><b>Way type:</b> </td><td>" + nodes[i][6] + "</td></tr>" +
+                "</table>";
+      
+        var circle = L.circle([nodes[i][3], nodes[i][2]], circleOptions)
+                 .bindPopup(table)
+                 .addTo(nodeLayer);
+      }
+    }
+    
+    
+    
+    // -------------------------------------------------------------------------
+    // --- Map zoom events                                                   ---
+    // -------------------------------------------------------------------------
+    
+    map.on('zoomend', function()
+    {
+      check_to_show_grid();
+      check_to_show_nodeLayer();
+    });
+    
+    
+    
+    // -------------------------------------------------------------------------
+    // --- The menu buttons                                                  ---
+    // -------------------------------------------------------------------------
+    
+    var controlsDiv = L.DomUtil.create('div', 'controls-div');
+    
+    // Button: reset selected tils
+    
+    var resetButton = L.DomUtil.create('button', 'reset-button', controlsDiv);
+    resetButton.innerHTML = 'Reset tiles';
+    resetButton.onclick = function() {
+        unclickAllSquares();
+        updateSelectedSquaresDiv();
+    };
+    
+    // Button: fiit zoom to selected tiles
+    
+    var zoomButton = L.DomUtil.create('button', 'reset-button', controlsDiv);
+    zoomButton.innerHTML = 'Fit zoom';
+    zoomButton.onclick = function() {
+        zoomToSelectedSquares();
+    };
+    
+    // Checkbox: show grid?
+    
+    var checkbox_gridLayer = L.DomUtil.create('input', 'checkbox', controlsDiv);
+    checkbox_gridLayer.type     = 'checkbox';
+    checkbox_gridLayer.checked  = true;
+    checkbox_gridLayer.onchange = function() {
+        check_to_show_grid();
+    };
+    
+    // Checkbox: show nodes?
+    
+    var checkbox_nodeLayer = L.DomUtil.create('input', 'checkbox', controlsDiv);
+    checkbox_nodeLayer.type     = 'checkbox';
+    checkbox_nodeLayer.checked  = true;
+    checkbox_nodeLayer.onchange = function() {
+        check_to_show_nodeLayer()
+    };
+    
+    // Checkbox: show tiles?
+    
+    var checkbox_squareLayer = L.DomUtil.create('input', 'checkbox', controlsDiv);
+    checkbox_squareLayer.type     = 'checkbox';
+    checkbox_squareLayer.checked  = true;
+    checkbox_squareLayer.onchange = function() {
+        check_to_show_squareLayer()
+    };
+    
+    controlsDiv.appendChild(resetButton);
+    controlsDiv.appendChild(zoomButton);
+    controlsDiv.appendChild(checkbox_gridLayer);
+    controlsDiv.appendChild(checkbox_nodeLayer);
+    controlsDiv.appendChild(checkbox_squareLayer);
+    
+    controlsDiv.style.position      = 'absolute';
+    controlsDiv.style.top           = '10px';
+    controlsDiv.style.right         = '10px';
+    controlsDiv.style.zIndex        = 1000;
+    controlsDiv.style.background    = 'rgba(255,255,255,0.8)';
+    controlsDiv.style.padding       = '6px 8px';
+    controlsDiv.style.font          = '14px/16px Arial, Helvetica, sans-serif';
+    controlsDiv.style.border.radius = '5px';
+    
+    map.getContainer().appendChild(controlsDiv);
+
+    
+    
+    // -------------------------------------------------------------------------
+    // --- Other functions                                                   ---
+    // -------------------------------------------------------------------------
+    
+    // Check whether to show grid
+    
+    function check_to_show_grid()
+    {
+      if (checkbox_gridLayer.checked &&
+      map.getZoom() >= showGridLayerFromZoom)
+      {
+        map.addLayer(gridLayer);
+      } else {
+        map.removeLayer(gridLayer);
+      }
+    }
+    
+    // Check whether to show nodes
+    
+    function check_to_show_nodeLayer()
+    {
+      if (checkbox_nodeLayer.checked &&
+      map.getZoom() >= showGridLayerFromZoom)
+      {
+        map.addLayer(nodeLayer);
+      } else {
+        map.removeLayer(nodeLayer);
+      }
+    }
+    
+    // Check whether to show selected tiles
+    
+    function check_to_show_squareLayer()
+    {
+      if (checkbox_squareLayer.checked)
+      {
+        map.addLayer(squareLayer);
+      } else {
+        map.removeLayer(squareLayer);
+      }
+    }
+    
+    // Reset selected tiles
+    
+    function unclickAllSquares()
+    {
+      squareLayer.eachLayer(function(layer)
+      {
+        layer.setStyle(style_unclicked);
+      });
+      
+      selectedTiles = [];
+    }  
+    
+    
+    
+    function zoomToSelectedSquares()
+    {
+      if (selectedTiles.length > 0)
+      {
+        let bounds = L.latLngBounds();
+  
+        for (let i = 0; i < selectedTiles.length; i++)
+        {
+          let tileBounds = squareLayer
+            .getLayer(selectedTiles[i])
+            .getBounds();
+          
+          bounds.extend(tileBounds);
+        }
+        
+        map.fitBounds(bounds);
+      }
+    }
+
+    
+    // Update div that shows all selected tiles
+    
+    function updateSelectedSquaresDiv()
+    {
+      selectedSquaresDiv.innerText = 'Selected tiles:\n' + selectedTiles.join(', ');
+    }
+  </script>
+
+</body>
+</html>
