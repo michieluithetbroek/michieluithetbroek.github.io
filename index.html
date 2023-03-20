@@ -3,14 +3,14 @@
 <head>
 	<title>Map</title>
 	<link rel="stylesheet" type="text/css" href="style.css">
-
+	
 	<link rel="stylesheet" href="leaflet/leaflet.css">
-	<script src="leaflet/leaflet.js"></script>
-  
-	<!-- Required to read and parse CSV files in javascript -->
+  <script src="leaflet/leaflet.js"></script>
+
+  <!-- Required to read and parse CSV files in javascript -->
  
   <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <!-- CSS used outside the LeafletJS map -->
   
@@ -86,6 +86,7 @@
 
     // Read data with all nodes and parse into JS array
     
+    
     const nodes = [];
     
     fetch('nodes.csv')
@@ -110,9 +111,22 @@
   </script>
 </head>
 <body>
-  Select some tiles by clicking on them, deselect them by clicking again. Also note the menu in the top right corner of the map. Here you can reset all selected tiles, fit the zoom such that all selected tiles are visible on the map, and you can disable/enable the layers that show the tiles, the grid, and the nodes.
-	
-  <div id="map"></div>
+
+<p>Select some tiles by clicking on them, deselect them by clicking again. Also note the menu in the top right corner of the map. Here you can reset all selected tiles, fit the zoom such that all selected tiles are visible on the map, and you can disable/enable the layers that show the tiles, the grid, and the nodes.</p>
+
+<p>Every half second the algorithm (currently a random number generator [0,100]) returns the current best objective. The graph below shows the objective as function over time.</p>
+
+
+<div class="wrapper" style="display: flex;">
+  
+  <div id="map" style="width: 800px; height: 600px;"></div>
+  
+  <div style="width: 400px; height: 800px; padding-left: 50px;">
+    <canvas id="myChart"></canvas>
+  </div>
+  
+</div>
+  
   <div id = "selectedSquares">Selected tiles: -</div>
   	
   <script>
@@ -146,16 +160,16 @@
 
     for (let col = grid_colMin; col <= grid_colMax; col++)
     {
-      var polyline = L.polyline([[tile_to_lat(grid_rowMin, 14), tile_to_lon(col, 14)],
-                                 [tile_to_lat(grid_rowMax, 14), tile_to_lon(col, 14)]], 
-                                {weight: 1, color: 'black'}).addTo(gridLayer);
+      L.polyline([[tile_to_lat(grid_rowMin, 14), tile_to_lon(col, 14)],
+                  [tile_to_lat(grid_rowMax, 14), tile_to_lon(col, 14)]], 
+                {weight: 1, color: 'black'}).addTo(gridLayer);
     }
     
     for (let row = grid_rowMin; row <= grid_rowMax; row++)
     {
-      var polyline = L.polyline([[tile_to_lat(row, 14), tile_to_lon(grid_colMax, 14)],
-                                 [tile_to_lat(row, 14), tile_to_lon(grid_colMin, 14)]], 
-                                {weight: 1, color: 'black'}).addTo(gridLayer);
+      L.polyline([[tile_to_lat(row, 14), tile_to_lon(grid_colMax, 14)],
+                  [tile_to_lat(row, 14), tile_to_lon(grid_colMin, 14)]], 
+                {weight: 1, color: 'black'}).addTo(gridLayer);
     }
 
 
@@ -164,7 +178,7 @@
     // --- Layer with clickable tiles                                        ---
     // -------------------------------------------------------------------------
     
-    var squareLayer = L.layerGroup({zIndex: 80}).addTo(map);
+    var squareLayer = L.layerGroup().addTo(map);
     
     var selectedTiles = [];
     
@@ -174,7 +188,7 @@
         {
             // The initial squares
         
-            var square = L.rectangle([
+            let square = L.rectangle([
                 [tile_to_lat(row, 14),     tile_to_lon(col, 14)],
                 [tile_to_lat(row + 1, 14), tile_to_lon(col - 1, 14)]
             ], style_unclicked).addTo(squareLayer);
@@ -205,8 +219,8 @@
             
             square.on('mouseover', function(event)
             {
-                var index = squareLayer.getLayerId(event.target);
-                var listIndex = selectedTiles.indexOf(index);
+                const index = squareLayer.getLayerId(event.target);
+                const listIndex = selectedTiles.indexOf(index);
                 
                 //event.target.bringToFront();
                 event.target.setStyle(listIndex > -1 ? style_hovered : style_hovered_clicked);
@@ -217,8 +231,8 @@
             
             square.on('mouseout', function(event)
             {
-                var index = squareLayer.getLayerId(event.target);
-                var listIndex = selectedTiles.indexOf(index);
+                const index = squareLayer.getLayerId(event.target);
+                const listIndex = selectedTiles.indexOf(index);
                 
                 event.target.setStyle(listIndex > -1 ? style_clicked : style_unclicked);
             });
@@ -235,22 +249,20 @@
     // this functions is only called after the nodes array is being populated 
     // it is implemented as a function that is called when the file is read
 
-    var nodeLayer = L.layerGroup({zIndex: 100}).addTo(map);
+    var nodeLayer = L.layerGroup().addTo(map);
 
     function createNodeLayer(nodes)
     {
-      // Define the circle options
-      
-      var circleOptions = {
-          color: 'black',
-          fillColor: '#f03',
+      const circleOptions = {
+          color:       'black',
+          fillColor:   '#f03',
           fillOpacity: 0.5,
-          radius: 10
+          radius:      10
       };
       
-      for (var i = 0; i < nodes.length; i++)
+      for (let i = 0; i < nodes.length; i++)
       {
-        var table = "<table>" +
+        const table = "<table>" +
                 "<tr><td><b>Node:</b>     </td><td>" + nodes[i][1] + "</td></tr>" +
                 "<tr><td><b>Latitude:</b> </td><td>" + nodes[i][3] + "</td></tr>" +
                 "<tr><td><b>Longitude:</b></td><td>" + nodes[i][2] + "</td></tr>" +
@@ -259,9 +271,9 @@
                 "<tr><td><b>Way type:</b> </td><td>" + nodes[i][6] + "</td></tr>" +
                 "</table>";
       
-        var circle = L.circle([nodes[i][3], nodes[i][2]], circleOptions)
-                 .bindPopup(table)
-                 .addTo(nodeLayer);
+        L.circle([nodes[i][3], nodes[i][2]], circleOptions)
+         .bindPopup(table)
+         .addTo(nodeLayer);
       }
     }
     
@@ -431,6 +443,64 @@
       selectedSquaresDiv.innerText = 'Selected tiles:\n' + selectedTiles.join(', ');
     }
   </script>
+
+
+
+
+
+
+
+<script>
+
+var values_x = [0];
+var values_y = [100];
+
+const ctx = document.getElementById('myChart').getContext('2d');
+
+const myChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: values_x,
+        datasets: [{
+            label: 'Objective over time',
+            data: values_y,
+            borderWidth: 1
+        }]
+    },
+    options: {
+      animation: {
+        duration: 0
+    },
+        scales: {
+          x: {
+            type: 'linear', 
+            min: 0, 
+            max: 50
+          },
+          y: {
+            beginAtZero: true,
+            max: 100
+            }
+        }
+    }
+});
+
+      function addData(x, y)
+      {
+        values_x.push(x);
+        values_y.push(y);
+        
+        myChart.update();
+      }
+
+      // Example usage: add a new point every second
+      let count = 1;
+      setInterval(() => {
+        addData(count, Math.min(values_y[values_y.length - 1], Math.floor(Math.random() * 100)));
+        count++;
+      }, 500);
+    </script>
+  </body>
 
 </body>
 </html>
